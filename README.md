@@ -121,8 +121,22 @@ $ sudo ./bgperf.py bench -n 200 -p 50
 run tester
 tester booting.. (200/200)
 run gobgp
-elapsed: 23sec, cpu: 0.02%, mem: 1.26GB
+elapsed: 23sec, target_cpu: 0.02%, target_mem: 1.26GB, recved: 10000, containers: monitor=0.10%/120.40MB, gobgp_target=0.02%/1.26GB, exabgp_tester_tester=35.20%/240.10MB
 elapsed time: 18sec
+```
+
+The live CPU and memory values are collected from the benchmark containers
+or nspawn machine scopes, not from the whole host. The same live output is
+shown when a benchmark is launched from the TUI.
+
+By default, each completed benchmark writes raw samples to `metrics.jsonl`,
+run metadata to `run.json`, and a Markdown report to `report.md` under the run
+directory. Use `--report` to choose another report path or `--no-report` to
+disable automatic report generation.
+
+```bash
+$ sudo ./bgperf.py bench -n 1 -p 10 --report /tmp/bgperf-report.md
+$ ./bgperf.py report --run-dir /tmp/bgperf -o /tmp/bgperf-report-regenerated.md
 ```
 
 To prepare a benchmark scenario on one host and run it later, package it first.

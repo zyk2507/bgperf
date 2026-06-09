@@ -590,7 +590,12 @@ make install
                         cpu = max(0.0, (cpu_ns - prev_cpu) / elapsed_ns * 100.0)
                 prev_cpu = cpu_ns
                 prev_time = now
-                queue.put({'who': container_name, 'cpu': cpu, 'mem': mem})
+                queue.put({
+                    'kind': 'resource',
+                    'who': container_name,
+                    'cpu': cpu,
+                    'mem': mem,
+                })
                 time.sleep(1)
 
         t = Thread(target=read)

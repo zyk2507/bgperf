@@ -192,7 +192,7 @@ class Container(object):
 
         return ctn
 
-    def stats(self, queue):
+    def resource_stats(self, queue):
         if runtime_config.name == 'nspawn':
             from nspawn import nspawn_manager
             return nspawn_manager.stats(self.name, queue)
@@ -200,11 +200,19 @@ class Container(object):
         def stats():
             for stat in podman_client.stats(self.ctn_id, decode=True):
                 cpu_percentage, mem_usage = self._parse_stats(stat)
-                queue.put({'who': self.name, 'cpu': cpu_percentage, 'mem': mem_usage})
+                queue.put({
+                    'kind': 'resource',
+                    'who': self.name,
+                    'cpu': cpu_percentage,
+                    'mem': mem_usage,
+                })
 
         t = Thread(target=stats)
         t.daemon = True
         t.start()
+
+    def stats(self, queue):
+        return self.resource_stats(queue)
 
     def _parse_stats(self, stat):
         if 'cpu_stats' in stat and 'precpu_stats' in stat:

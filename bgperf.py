@@ -39,6 +39,7 @@ from tester import ExaBGPTester
 from mrt_tester import GoBGPMRTTester, ExaBGPMrtTester
 from monitor import Monitor
 from settings import IPAMConfig, IPAMPool, podman_client, configure_runtime, runtime_config
+from reports import BenchReporter, expected_routes, format_resource_status, mem_human, write_report_from_run
 from queue import Queue
 from mako.template import Template
 from packaging import version
@@ -709,6 +710,7 @@ def bench(args):
     print('waiting bgp connection between {0} and monitor'.format(args.target))
     m.wait_established(conf['target']['local-address'])
 
+    testers = []
     if not args.repeat:
         for idx, tester in enumerate(conf['testers']):
             if 'name' not in tester:
@@ -739,48 +741,72 @@ def bench(args):
             t = tester_class(name, config_dir+'/'+name, tester)
             print('run tester', name, 'type', tester_type)
             t.run(conf['target'], network_name)
+            testers.append(t)
 
     start = datetime.datetime.now()
 
     q = Queue()
+    reporter = BenchReporter(config_dir, enabled=not args.no_report)
+    reporter.start({
+        'runtime': runtime_config.name,
+        'target': args.target,
+        'image': args.image,
+        'remote': is_remote,
+        'local_prefix': conf.get('local_prefix'),
+        'neighbor_count': num_tester,
+        'expected_routes': expected_routes(conf),
+    })
+
+    resource_containers = [m]
+    if not is_remote:
+        resource_containers.append(target)
+    resource_containers.extend(testers)
+    resource_order = [container.name for container in resource_containers]
+    latest_resources = {}
 
     m.stats(q)
-    if not is_remote:
-        target.stats(q)
-
-    def mem_human(v):
-        if v > 1000 * 1000 * 1000:
-            return '{0:.2f}GB'.format(float(v) / (1000 * 1000 * 1000))
-        elif v > 1000 * 1000:
-            return '{0:.2f}MB'.format(float(v) / (1000 * 1000))
-        elif v > 1000:
-            return '{0:.2f}KB'.format(float(v) / 1000)
-        else:
-            return '{0:.2f}B'.format(float(v))
+    for container in resource_containers:
+        container.resource_stats(q)
 
     f = open(args.output, 'w') if args.output else None
-    cpu = 0
-    mem = 0
     cooling = -1
     while True:
         info = q.get()
+        now = datetime.datetime.now()
+        elapsed = now - start
+        elapsed_seconds = int(elapsed.total_seconds())
 
-        if not is_remote and info['who'] == target.name:
-            cpu = info['cpu']
-            mem = info['mem']
+        if info.get('kind') == 'resource':
+            latest_resources[info['who']] = {
+                'cpu': info.get('cpu', 0.0),
+                'mem': info.get('mem', 0),
+            }
+            reporter.record_resource(elapsed_seconds, info['who'], info.get('cpu', 0.0), info.get('mem', 0))
+            continue
+
+        if info.get('kind') != 'bgp':
+            continue
 
         if info['who'] == m.name:
-            now = datetime.datetime.now()
-            elapsed = now - start
             recved = info['state']['adj-table']['accepted'] if 'accepted' in info['state']['adj-table'] else 0
-            if elapsed.seconds > 0:
+            reporter.record_routes(elapsed_seconds, recved)
+            if elapsed_seconds > 0:
                 rm_line()
-            print('elapsed: {0}sec, cpu: {1:>4.2f}%, mem: {2}, recved: {3}'.format(elapsed.seconds, cpu, mem_human(mem), recved))
-            f.write('{0}, {1}, {2}, {3}\n'.format(elapsed.seconds, cpu, mem, recved)) if f else None
+            target_resource = latest_resources.get(target.name, {}) if not is_remote else {}
+            cpu = target_resource.get('cpu', 0.0)
+            mem = target_resource.get('mem', 0)
+            resource_status = format_resource_status(latest_resources, resource_order)
+            print('elapsed: {0}sec, target_cpu: {1:>4.2f}%, target_mem: {2}, recved: {3}, containers: {4}'.format(
+                elapsed_seconds, cpu, mem_human(mem), recved, resource_status
+            ))
+            f.write('{0}, {1}, {2}, {3}\n'.format(elapsed_seconds, cpu, mem, recved)) if f else None
             f.flush() if f else None
 
             if cooling == args.cooling:
                 f.close() if f else None
+                report_path = reporter.finish({}, args.report)
+                if report_path:
+                    print('report: {0}'.format(report_path))
                 return
 
             if cooling >= 0:
@@ -922,6 +948,16 @@ def config(args):
         f.write(conf)
 
 
+def report_cmd(args):
+    config_dir = args.run_dir or '{0}/{1}'.format(args.dir, args.bench_name)
+    try:
+        report_path = write_report_from_run(config_dir, args.output)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(2)
+    print('wrote report: {0}'.format(report_path))
+
+
 def build_parser():
     parser = ArgumentParser(description='BGP performance measuring tool')
     parser.add_argument('-b', '--bench-name', default='bgperf')
@@ -1007,6 +1043,10 @@ def build_parser():
                               help='write a compressed benchmark package and exit without running')
     parser_bench.add_argument('--from-package', metavar='PACKAGE',
                               help='load a compressed benchmark package and run without regenerating scenario')
+    parser_bench.add_argument('--report', metavar='REPORT',
+                              help='write a markdown benchmark report; default: report.md under the run directory')
+    parser_bench.add_argument('--no-report', action='store_true',
+                              help='disable automatic benchmark report generation')
     parser_bench.add_argument('-g', '--cooling', default=0, type=int)
     parser_bench.add_argument('-o', '--output', metavar='STAT_FILE')
     add_gen_conf_args(parser_bench)
@@ -1016,6 +1056,13 @@ def build_parser():
     parser_config.add_argument('-o', '--output', default='bgperf.yml', type=str)
     add_gen_conf_args(parser_config)
     parser_config.set_defaults(func=config)
+
+    parser_report = s.add_parser('report', help='generate a benchmark report from collected metrics')
+    parser_report.add_argument('--run-dir',
+                               help='benchmark run directory; default: DIR/BENCH_NAME')
+    parser_report.add_argument('-o', '--output',
+                               help='report output path; default: report.md under the run directory')
+    parser_report.set_defaults(func=report_cmd)
 
     parser_tui = s.add_parser('tui', help='interactive terminal UI')
     parser_tui.set_defaults(

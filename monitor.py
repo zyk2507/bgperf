@@ -94,6 +94,7 @@ gobgpd -t yaml -f {1}/{2} -l {3} > {1}/gobgpd.log 2>&1
             cps = self.config['monitor']['check-points'] if 'check-points' in self.config['monitor'] else []
             while True:
                 info = json.loads(self.local('gobgp neighbor -j'))[0]
+                info['kind'] = 'bgp'
                 info['who'] = self.name
                 info.setdefault('state', {})['adj-table'] = {'accepted': accepted_paths(info)}
                 state = info['state']

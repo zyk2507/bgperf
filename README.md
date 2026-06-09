@@ -5,6 +5,7 @@ bgperf is a performance measurement tool for BGP implementation.
 
 * [How to install](#how_to_install)
 * [How to use](#how_to_use)
+* [Usage guide (Chinese)](docs/usage.zh.md)
 * [How bgperf works](https://github.com/osrg/bgperf/blob/master/docs/how_bgperf_works.md)
 * [Benchmark remote target](https://github.com/osrg/bgperf/blob/master/docs/benchmark_remote_target.md)
 * [MRT injection](https://github.com/osrg/bgperf/blob/master/docs/mrt.md)

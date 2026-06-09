@@ -12,7 +12,7 @@ bgperf is a performance measurement tool for BGP implementation.
 ## Prerequisites
 
 * Python 3.8 or later
-* Podman
+* Podman, or systemd-nspawn with debootstrap
 
 ##  <a name="how_to_install">How to install
 
@@ -45,8 +45,28 @@ podman version ... ok (5.8.2)
 bgperf image ... ok
 gobgp image ... ok
 bird image ... ok
-quagga image ... ok
+frr image ... ok
 ```
+
+## Runtimes
+
+Podman is the default runtime. bgperf can also run with systemd-nspawn and a
+Debian rootfs stored below the current working tree.
+
+```bash
+$ sudo ./bgperf.py --runtime nspawn --runtime-dir .bgperf-nspawn prepare
+$ sudo ./bgperf.py --runtime nspawn --runtime-dir .bgperf-nspawn bench -n 1 -p 10
+```
+
+The nspawn runtime requires `systemd-nspawn`, `machinectl`, `systemd-run`,
+`debootstrap`, and `ip`. It builds Debian trixie rootfs images by default and
+downloads the latest stable Go toolchain from `go.dev` inside the rootfs for
+GoBGP builds. Resource limits are passed through systemd with
+`--nspawn-cpu-quota` and `--nspawn-memory-max`.
+
+The nspawn runtime keeps its base rootfs, built systems, run directories, and
+logs under `--runtime-dir`, so cleanup is usually removing that directory after
+terminating any active bgperf machines.
 
 ## <a name="how_to_use">How to use
 
@@ -64,8 +84,8 @@ elapsed time: 11sec
 ```
 
 To change a target implementation, use `-t` option.
-Currently, `bgperf` supports [BIRD](http://bird.network.cz/) and [Quagga](http://www.nongnu.org/quagga/)
-other than GoBGP.
+Currently, `bgperf` supports [BIRD](http://bird.network.cz/) and
+[FRRouting](https://frrouting.org/) other than GoBGP.
 
 ```bash
 $ sudo ./bgperf.py bench -t bird
@@ -74,13 +94,18 @@ tester booting.. (100/100)
 run bird
 elapsed: 16sec, cpu: 0.00%, mem: 147.55MB
 elapsed time: 11sec
-$ sudo ./bgperf.py bench -t quagga
-run tester
-tester booting.. (100/100)
-run quagga
-elapsed: 33sec, cpu: 0.02%, mem: 477.93MB
-elapsed time: 28sec
 ```
+
+To build from a custom upstream repository, pass the repository URL while still
+using bgperf's fixed build template for that implementation.
+
+```bash
+$ ./bgperf.py prepare --bird-repo https://example.com/my/bird.git
+$ ./bgperf.py update bird --repo https://example.com/my/bird.git -c my-branch
+```
+
+Custom repositories are supported for ExaBGP, MRTParse, GoBGP, BIRD, and FRR.
+Custom build commands are not supported.
 
 To change a load, use following options.
 
@@ -100,4 +125,37 @@ elapsed: 23sec, cpu: 0.02%, mem: 1.26GB
 elapsed time: 18sec
 ```
 
+To prepare a benchmark scenario on one host and run it later, package it first.
+This writes a compressed archive and exits before starting containers.
+
+```bash
+$ ./bgperf.py bench --package-only bgperf-case.tar.gz -t bird -n 200 -p 50
+$ sudo ./bgperf.py bench --from-package bgperf-case.tar.gz
+```
+
+The package contains the rendered scenario, any referenced target config or MRT files,
+and the runtime artifacts needed by the benchmark. Podman packages contain
+Podman image archives. nspawn packages contain compressed full Debian rootfs
+systems. Run `./bgperf.py prepare` before creating a package.
+
+```bash
+$ sudo ./bgperf.py --runtime nspawn --runtime-dir .bgperf-nspawn bench --package-only bgperf-case.tar.gz -t gobgp -n 1 -p 10
+$ sudo ./bgperf.py --runtime nspawn --runtime-dir .bgperf-nspawn-loaded bench --from-package bgperf-case.tar.gz
+```
+
+`--from-package` loads the packaged images or rootfs systems and runs the
+benchmark without rebuilding them.
+
 For a comprehensive list of options, run `sudo ./bgperf.py bench --help`.
+
+## Terminal UI
+
+Run the terminal UI to configure and launch any bgperf command from one screen.
+
+```bash
+$ ./bgperf.py tui
+```
+
+Use the arrow keys to move between commands, fields, and the Run/Reset/Quit
+buttons. Press Enter to edit text fields or activate a button; use left/right
+to change choices and toggle boolean options.

@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from settings import podman_client
+from settings import podman_client, runtime_config
 import io
 import os
+import shlex
 import yaml
 from itertools import chain
 from threading import Thread
@@ -24,7 +25,14 @@ import sys
 
 flatten = lambda l: chain.from_iterable(l)
 
+
+def shell_quote(value):
+    return shlex.quote(str(value))
+
 def get_ctn_names():
+    if runtime_config.name == 'nspawn':
+        from nspawn import nspawn_manager
+        return nspawn_manager.container_names()
     names = list(flatten(n['Names'] for n in podman_client.containers(all=True)))
     return [n[1:] if n and n[0] == '/' else n for n in names]
 
@@ -33,7 +41,17 @@ def ctn_exists(name):
     return name in get_ctn_names()
 
 
+def remove_ctn(name, force=True):
+    if runtime_config.name == 'nspawn':
+        from nspawn import nspawn_manager
+        return nspawn_manager.remove_container(name, force=force)
+    return podman_client.remove_container(name, force=force)
+
+
 def img_exists(name):
+    if runtime_config.name == 'nspawn':
+        from nspawn import nspawn_manager
+        return nspawn_manager.image_exists(name)
     image_names = []
     for image in podman_client.images():
         for repo_tag in image.get('RepoTags') or []:
@@ -62,6 +80,9 @@ class Container(object):
 
     @classmethod
     def build_image(cls, force, tag, nocache=False):
+        if runtime_config.name == 'nspawn':
+            raise NotImplementedError('nspawn image build is implemented by each BGP image class')
+
         def insert_after_from(containerfile, line):
             lines = containerfile.split('\n')
             i = -1
@@ -93,10 +114,13 @@ class Container(object):
         raise NotImplementedError()
 
     def run(self, network_name='', rm=True):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            return nspawn_manager.start_container(self, network_name, rm=rm)
 
         if rm and ctn_exists(self.name):
             print('remove container:', self.name)
-            podman_client.remove_container(self.name, force=True)
+            remove_ctn(self.name, force=True)
 
         host_config = podman_client.create_host_config(
             binds=['{0}:{1}'.format(os.path.abspath(self.host_dir), self.guest_dir)],
@@ -169,6 +193,10 @@ class Container(object):
         return ctn
 
     def stats(self, queue):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            return nspawn_manager.stats(self.name, queue)
+
         def stats():
             for stat in podman_client.stats(self.ctn_id, decode=True):
                 cpu_percentage, mem_usage = self._parse_stats(stat)
@@ -241,6 +269,9 @@ class Container(object):
             return 0
 
     def local(self, cmd, stream=False, detach=False):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            return nspawn_manager.exec(self.name, cmd, stream=stream, detach=detach)
         i = podman_client.exec_create(container=self.name, cmd=cmd)
         return podman_client.exec_start(i['Id'], stream=stream, detach=detach)
 
@@ -310,6 +341,10 @@ class Tester(Container):
         ctn = super(Tester, self).run(network_name)
 
         self.configure_neighbors(target_conf)
+
+        if runtime_config.name == 'nspawn':
+            self.exec_startup_cmd(detach=True)
+            return ctn
 
         output = self.exec_startup_cmd(stream=True, detach=False)
 

@@ -17,6 +17,7 @@ from base import *
 
 class BIRD(Container):
 
+    DEFAULT_REPO = 'https://gitlab.labs.nic.cz/labs/bird.git'
     CONTAINER_NAME = None
     GUEST_DIR = '/root/config'
 
@@ -24,16 +25,22 @@ class BIRD(Container):
         super(BIRD, self).__init__(self.CONTAINER_NAME, image, host_dir, self.GUEST_DIR, conf)
 
     @classmethod
-    def build_image(cls, force=False, tag='bgperf/bird', checkout='HEAD', nocache=False):
+    def build_image(cls, force=False, tag='bgperf/bird', checkout='HEAD', nocache=False,
+                    repo=DEFAULT_REPO):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            nspawn_manager.build_bird(tag, force, repo, checkout)
+            return
+
         cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
 RUN apt-get update && apt-get install -qy git autoconf libtool gawk make \
 flex bison libncurses-dev libreadline-dev
 RUN apt-get install -qy flex
-RUN git clone https://gitlab.labs.nic.cz/labs/bird.git bird
-RUN cd bird && git checkout {0} && autoreconf -i && ./configure && make && make install
-'''.format(checkout)
+RUN git clone {repo} bird
+RUN cd bird && git checkout {checkout} && autoreconf -i && ./configure && make && make install
+'''.format(repo=shell_quote(repo), checkout=shell_quote(checkout))
         super(BIRD, cls).build_image(force, tag, nocache)
 
 

@@ -42,6 +42,38 @@ class IPAMConfig(dict):
         self.update({k: v for k, v in values.items() if v is not None})
 
 
+class RuntimeConfig(object):
+    def __init__(self):
+        self.name = 'podman'
+        self.runtime_dir = os.path.abspath('.bgperf-nspawn')
+        self.nspawn_debian_suite = 'trixie'
+        self.nspawn_debian_mirror = 'http://deb.debian.org/debian'
+        self.nspawn_cpu_quota = '100%'
+        self.nspawn_memory_max = '1G'
+
+
+runtime_config = RuntimeConfig()
+
+
+def configure_runtime(args, runtime_name=None):
+    runtime_config.name = runtime_name or getattr(args, 'runtime', runtime_config.name)
+    runtime_config.runtime_dir = os.path.abspath(
+        getattr(args, 'runtime_dir', runtime_config.runtime_dir)
+    )
+    runtime_config.nspawn_debian_suite = getattr(
+        args, 'nspawn_debian_suite', runtime_config.nspawn_debian_suite
+    )
+    runtime_config.nspawn_debian_mirror = getattr(
+        args, 'nspawn_debian_mirror', runtime_config.nspawn_debian_mirror
+    )
+    runtime_config.nspawn_cpu_quota = getattr(
+        args, 'nspawn_cpu_quota', runtime_config.nspawn_cpu_quota
+    )
+    runtime_config.nspawn_memory_max = getattr(
+        args, 'nspawn_memory_max', runtime_config.nspawn_memory_max
+    )
+
+
 def _default_podman_base_url():
     for key in ('PODMAN_HOST', 'CONTAINER_HOST'):
         if os.environ.get(key):

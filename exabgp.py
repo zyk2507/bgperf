@@ -17,43 +17,62 @@ from base import *
 
 class ExaBGP(Container):
 
+    DEFAULT_REPO = 'https://github.com/Exa-Networks/exabgp'
     GUEST_DIR = '/root/config'
 
     def __init__(self, name, host_dir, conf, image='bgperf/exabgp'):
         super(ExaBGP, self).__init__('bgperf_exabgp_' + name, image, host_dir, self.GUEST_DIR, conf)
 
     @classmethod
-    def build_image(cls, force=False, tag='bgperf/exabgp', checkout='HEAD', nocache=False):
+    def build_image(cls, force=False, tag='bgperf/exabgp', checkout='HEAD', nocache=False,
+                    repo=DEFAULT_REPO):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            nspawn_manager.build_exabgp(tag, force, repo, checkout)
+            return
+
         cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
 RUN apt-get update && apt-get install -qy git python3 python3-setuptools gcc python3-dev python3-pip
-RUN git clone https://github.com/Exa-Networks/exabgp && \
-(cd exabgp && git checkout {0} && python3 -m pip install --break-system-packages six && \
+RUN git clone {repo} exabgp && \
+(cd exabgp && git checkout {checkout} && python3 -m pip install --break-system-packages six && \
 python3 -m pip install --break-system-packages -r requirements.txt && python3 setup.py install)
 RUN ln -s /root/exabgp /exabgp
-'''.format(checkout)
+'''.format(repo=shell_quote(repo), checkout=shell_quote(checkout))
         super(ExaBGP, cls).build_image(force, tag, nocache)
 
 
 class ExaBGP_MRTParse(Container):
 
+    DEFAULT_REPO = ExaBGP.DEFAULT_REPO
+    DEFAULT_MRTPARSE_REPO = 'https://github.com/t2mune/mrtparse.git'
     GUEST_DIR = '/root/config'
 
     def __init__(self, name, host_dir, conf, image='bgperf/exabgp_mrtparse'):
         super(ExaBGP_MRTParse, self).__init__('bgperf_exabgp_mrtparse_' + name, image, host_dir, self.GUEST_DIR, conf)
 
     @classmethod
-    def build_image(cls, force=False, tag='bgperf/exabgp_mrtparse', checkout='HEAD', nocache=False):
+    def build_image(cls, force=False, tag='bgperf/exabgp_mrtparse', checkout='HEAD', nocache=False,
+                    repo=DEFAULT_REPO, mrtparse_repo=DEFAULT_MRTPARSE_REPO):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            nspawn_manager.build_exabgp(tag, force, repo, checkout, mrtparse_repo=mrtparse_repo)
+            return
+
         cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
 RUN apt-get update && apt-get install -qy git python3 python3-setuptools gcc python3-dev python3-pip
-RUN git clone https://github.com/Exa-Networks/exabgp && \
-(cd exabgp && git checkout {0} && python3 -m pip install --break-system-packages six && \
+RUN git clone {repo} exabgp && \
+(cd exabgp && git checkout {checkout} && python3 -m pip install --break-system-packages six && \
 python3 -m pip install --break-system-packages -r requirements.txt && python3 setup.py install)
 RUN ln -s /root/exabgp /exabgp
-RUN git clone https://github.com/t2mune/mrtparse.git && \
+RUN git clone {mrtparse_repo} mrtparse && \
 (cd mrtparse && python3 setup.py install)
-'''.format(checkout)
+'''.format(
+            repo=shell_quote(repo),
+            checkout=shell_quote(checkout),
+            mrtparse_repo=shell_quote(mrtparse_repo),
+        )
         super(ExaBGP_MRTParse, cls).build_image(force, tag, nocache)

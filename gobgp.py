@@ -17,6 +17,7 @@ from base import *
 
 class GoBGP(Container):
 
+    DEFAULT_REPO = 'https://github.com/osrg/gobgp.git'
     CONTAINER_NAME = None
     GUEST_DIR = '/root/config'
 
@@ -24,13 +25,19 @@ class GoBGP(Container):
         super(GoBGP, self).__init__(self.CONTAINER_NAME, image, host_dir, self.GUEST_DIR, conf)
 
     @classmethod
-    def build_image(cls, force=False, tag='bgperf/gobgp', checkout='HEAD', nocache=False):
+    def build_image(cls, force=False, tag='bgperf/gobgp', checkout='HEAD', nocache=False,
+                    repo=DEFAULT_REPO):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            nspawn_manager.build_gobgp(tag, force, repo, checkout)
+            return
+
         cls.containerfile = '''
 FROM golang:1.26
 WORKDIR /root
-RUN git clone https://github.com/osrg/gobgp.git
-RUN cd gobgp && git checkout {0} && go install ./cmd/gobgp ./cmd/gobgpd
-'''.format(checkout)
+RUN git clone {repo} gobgp
+RUN cd gobgp && git checkout {checkout} && go install ./cmd/gobgp ./cmd/gobgpd
+'''.format(repo=shell_quote(repo), checkout=shell_quote(checkout))
         super(GoBGP, cls).build_image(force, tag, nocache)
 
 
@@ -102,8 +109,8 @@ class GoBGPTarget(GoBGP, Target):
             if 'filter' in n:
                 a = {}
                 if 'in' in n['filter']:
-                    a['in-policy-list'] = n['filter']['in']
-                    a['default-in-policy'] = 'accept-route'
+                    a['import-policy-list'] = n['filter']['in']
+                    a['default-import-policy'] = 'accept-route'
                 if 'out' in n['filter']:
                     a['export-policy-list'] = n['filter']['out']
                     a['default-export-policy'] = 'accept-route'

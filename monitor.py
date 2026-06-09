@@ -15,11 +15,40 @@
 
 from gobgp import GoBGP
 import os
-from settings import podman_client
 import yaml
 import json
 from threading import Thread
 import time
+
+
+def dict_get_any(values, names, default=None):
+    for name in names:
+        if name in values:
+            return values[name]
+    return default
+
+
+def is_established(neigh):
+    state = neigh.get('state', {})
+    session_state = dict_get_any(state, ['session-state', 'session_state'])
+    if isinstance(session_state, int):
+        return session_state == 6
+    if session_state is None:
+        return False
+    return str(session_state).lower().endswith('established')
+
+
+def accepted_paths(neigh):
+    state = neigh.get('state', {})
+    adj_table = dict_get_any(state, ['adj-table', 'adj_table'], {})
+    if 'accepted' in adj_table:
+        return int(adj_table['accepted'])
+
+    accepted = 0
+    for afi_safi in dict_get_any(neigh, ['afi-safis', 'afi_safis'], []):
+        accepted += int(afi_safi.get('state', {}).get('accepted', 0))
+    return accepted
+
 
 class Monitor(GoBGP):
 
@@ -49,15 +78,14 @@ gobgpd -t yaml -f {1}/{2} -l {3} > {1}/gobgpd.log 2>&1
         with open(filename, 'w') as f:
             f.write(startup)
         os.chmod(filename, 0o777)
-        i = podman_client.exec_create(container=self.name, cmd='{0}/start.sh'.format(self.guest_dir))
-        podman_client.exec_start(i['Id'], detach=True)
+        self.local('{0}/start.sh'.format(self.guest_dir), detach=True)
         self.config = conf
         return ctn
 
     def wait_established(self, neighbor):
         while True:
             neigh = json.loads(self.local('gobgp neighbor {0} -j'.format(neighbor)))
-            if neigh['state']['session-state'] == 'established':
+            if is_established(neigh):
                 return
             time.sleep(1)
 
@@ -67,8 +95,9 @@ gobgpd -t yaml -f {1}/{2} -l {3} > {1}/gobgpd.log 2>&1
             while True:
                 info = json.loads(self.local('gobgp neighbor -j'))[0]
                 info['who'] = self.name
+                info.setdefault('state', {})['adj-table'] = {'accepted': accepted_paths(info)}
                 state = info['state']
-                if 'adj-table' in state and 'accepted' in state['adj-table'] and len(cps) > 0 and int(cps[0]) == int(state['adj-table']['accepted']):
+                if len(cps) > 0 and int(cps[0]) == int(state['adj-table']['accepted']):
                     cps.pop(0)
                     info['checked'] = True
                 else:

@@ -16,6 +16,7 @@
 from base import *
 
 class FRRouting(Container):
+    DEFAULT_REPO = 'https://github.com/FRRouting/frr.git'
     CONTAINER_NAME = None
     GUEST_DIR = '/root/config'
 
@@ -23,7 +24,13 @@ class FRRouting(Container):
         super(FRRouting, self).__init__(self.CONTAINER_NAME, image, host_dir, self.GUEST_DIR, conf)
 
     @classmethod
-    def build_image(cls, force=False, tag='bgperf/frr', checkout='HEAD', nocache=False):
+    def build_image(cls, force=False, tag='bgperf/frr', checkout='HEAD', nocache=False,
+                    repo=DEFAULT_REPO):
+        if runtime_config.name == 'nspawn':
+            from nspawn import nspawn_manager
+            nspawn_manager.build_frr(tag, force, repo, checkout)
+            return
+
         cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
@@ -39,9 +46,9 @@ RUN apt-get update && apt-get install -y \
     texinfo dejagnu pkg-config libpam0g-dev libjson-c-dev bison flex \
     python3-pytest libc-ares-dev python3-dev libsystemd-dev
 
-RUN git clone https://github.com/FRRouting/frr.git frr
+RUN git clone {repo} frr
 # build, including examples and documentation to disable '--disable-doc'
-RUN cd frr && git checkout {0} && ./bootstrap.sh && \
+RUN cd frr && git checkout {checkout} && ./bootstrap.sh && \
 ./configure \
     --prefix=/usr \
     --enable-exampledir=/usr/share/doc/frr/examples/ \
@@ -59,7 +66,7 @@ RUN cd frr && git checkout {0} && ./bootstrap.sh && \
     --with-pkg-git-version \
     --with-pkg-extra-version=-bgperf_frr
 RUN cd frr && make -j2 && make check && make install
-'''.format(checkout)
+'''.format(repo=shell_quote(repo), checkout=shell_quote(checkout))
         super(FRRouting, cls).build_image(force, tag, nocache)
 
 

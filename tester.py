@@ -16,7 +16,7 @@
 from base import Tester
 from exabgp import ExaBGP
 import os
-from settings import podman_client
+from settings import runtime_config
 
 def rm_line():
     print('\x1b[1A\x1b[2K\x1b[1D\x1b[1A')
@@ -55,9 +55,14 @@ ulimit -n 65536''']
 
         peers = self.conf.get('neighbors', {}).values()
         for p in peers:
+            daemonize = 'false' if runtime_config.name == 'nspawn' else 'true'
+            background = ' &' if runtime_config.name == 'nspawn' else ''
             startup.append('''env exabgp.log.destination={0}/{1}.log \
-exabgp.daemon.daemonize=true \
+exabgp.daemon.daemonize={2} \
 exabgp.daemon.user=root \
-exabgp {0}/{1}.conf'''.format(self.guest_dir, p['router-id']))
+exabgp {0}/{1}.conf{3}'''.format(self.guest_dir, p['router-id'], daemonize, background))
+
+        if runtime_config.name == 'nspawn':
+            startup.append('wait')
 
         return '\n'.join(startup)

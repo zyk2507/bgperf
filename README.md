@@ -11,8 +11,8 @@ bgperf is a performance measurement tool for BGP implementation.
 
 ## Prerequisites
 
-* Python 2.7 or later
-* Docker
+* Python 3.8 or later
+* Podman
 
 ##  <a name="how_to_install">How to install
 
@@ -20,6 +20,7 @@ bgperf is a performance measurement tool for BGP implementation.
 $ git clone https://github.com/osrg/bgperf
 $ cd bgperf
 $ pip install -r pip-requirements.txt
+$ podman system service --time=0 &
 $ ./bgperf.py --help
 usage: bgperf.py [-h] [-b BENCH_NAME] [-d DIR]
                  {doctor,prepare,update,bench,config} ...
@@ -30,7 +31,7 @@ positional arguments:
   {doctor,prepare,update,bench,config}
     doctor              check env
     prepare             prepare env
-    update              pull bgp docker images
+    update              rebuild bgp container images
     bench               run benchmarks
     config              generate config
 
@@ -40,7 +41,7 @@ optional arguments:
   -d DIR, --dir DIR
 $ ./bgperf.py prepare
 $ ./bgperf.py doctor
-docker version ... ok (1.9.1)
+podman version ... ok (5.8.2)
 bgperf image ... ok
 gobgp image ... ok
 bird image ... ok

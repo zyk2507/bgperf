@@ -25,14 +25,11 @@ class GoBGP(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/gobgp', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
-FROM golang:1.6
+        cls.containerfile = '''
+FROM golang:1.26
 WORKDIR /root
-RUN go get -v github.com/osrg/gobgp/gobgpd
-RUN go get -v github.com/osrg/gobgp/gobgp
-RUN cd $GOPATH/src/github.com/osrg/gobgp && git checkout {0}
-RUN go install github.com/osrg/gobgp/gobgpd
-RUN go install github.com/osrg/gobgp/gobgp
+RUN git clone https://github.com/osrg/gobgp.git
+RUN cd gobgp && git checkout {0} && go install ./cmd/gobgp ./cmd/gobgpd
 '''.format(checkout)
         super(GoBGP, cls).build_image(force, tag, nocache)
 
@@ -61,7 +58,7 @@ class GoBGPTarget(GoBGP, Target):
                         'ext-community-sets': [],
                     },
             }
-            for k, v in scenario_global_conf['policy'].iteritems():
+            for k, v in scenario_global_conf['policy'].items():
                 conditions = {
                     'bgp-conditions': {},
                 }

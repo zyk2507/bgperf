@@ -24,13 +24,13 @@ class ExaBGP(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/exabgp', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
+        cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
-RUN apt-get update && apt-get install -qy git python python-setuptools gcc python-dev
-RUN easy_install pip
+RUN apt-get update && apt-get install -qy git python3 python3-setuptools gcc python3-dev python3-pip
 RUN git clone https://github.com/Exa-Networks/exabgp && \
-(cd exabgp && git checkout {0} && pip install six && pip install -r requirements.txt && python setup.py install)
+(cd exabgp && git checkout {0} && python3 -m pip install --break-system-packages six && \
+python3 -m pip install --break-system-packages -r requirements.txt && python3 setup.py install)
 RUN ln -s /root/exabgp /exabgp
 '''.format(checkout)
         super(ExaBGP, cls).build_image(force, tag, nocache)
@@ -45,15 +45,15 @@ class ExaBGP_MRTParse(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/exabgp_mrtparse', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
+        cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
-RUN apt-get update && apt-get install -qy git python python-setuptools gcc python-dev
-RUN easy_install pip
+RUN apt-get update && apt-get install -qy git python3 python3-setuptools gcc python3-dev python3-pip
 RUN git clone https://github.com/Exa-Networks/exabgp && \
-(cd exabgp && git checkout {0} && pip install six && pip install -r requirements.txt && python setup.py install)
+(cd exabgp && git checkout {0} && python3 -m pip install --break-system-packages six && \
+python3 -m pip install --break-system-packages -r requirements.txt && python3 setup.py install)
 RUN ln -s /root/exabgp /exabgp
 RUN git clone https://github.com/t2mune/mrtparse.git && \
-(cd mrtparse && python setup.py install)
+(cd mrtparse && python3 setup.py install)
 '''.format(checkout)
         super(ExaBGP_MRTParse, cls).build_image(force, tag, nocache)

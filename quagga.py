@@ -25,13 +25,13 @@ class Quagga(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/quagga', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
+        cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
 RUN useradd -M quagga
 RUN mkdir /var/log/quagga && chown quagga:quagga /var/log/quagga
 RUN mkdir /var/run/quagga && chown quagga:quagga /var/run/quagga
-RUN apt-get update && apt-get install -qy git autoconf libtool gawk make telnet libreadline6-dev
+RUN apt-get update && apt-get install -qy git autoconf libtool gawk make telnet libreadline-dev
 RUN git clone git://git.sv.gnu.org/quagga.git quagga
 RUN cd quagga && git checkout {0} && ./bootstrap.sh && \
 ./configure --disable-doc --localstatedir=/var/run/quagga && make && make install
@@ -72,7 +72,7 @@ neighbor {0} timers 30 90
 
             if 'policy' in scenario_global_conf:
                 seq = 10
-                for k, v in scenario_global_conf['policy'].iteritems():
+                for k, v in scenario_global_conf['policy'].items():
                     match_info = []
                     for i, match in enumerate(v['match']):
                         n = '{0}_match_{1}'.format(k, i)

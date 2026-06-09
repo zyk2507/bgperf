@@ -18,7 +18,7 @@ from gobgp import GoBGP
 from exabgp import ExaBGP_MRTParse
 import os
 import yaml
-from  settings import dckr
+from settings import podman_client
 import shutil
 
 
@@ -71,7 +71,7 @@ class ExaBGPMrtTester(Tester, ExaBGP_MRTParse, MRTTester):
             if not mrt_guest_file_path:
                 mrt_guest_file_path = tester_mrt_guest_file_path
 
-            cmd = ['/usr/bin/python', '/root/mrtparse/examples/mrt2exabgp.py']
+            cmd = ['/usr/bin/python3', '/root/mrtparse/examples/mrt2exabgp.py']
             cmd += ['-r {router_id}',
                     '-l {local_as}',
                     '-p {peer_as}',
@@ -142,7 +142,7 @@ class GoBGPMRTTester(Tester, GoBGP, MRTTester):
         super(GoBGPMRTTester, self).__init__(name, host_dir, conf, image)
 
     def configure_neighbors(self, target_conf):
-        conf = self.conf.get('neighbors', {}).values()[0]
+        conf = list(self.conf.get('neighbors', {}).values())[0]
 
         config = {
             'global': {
@@ -166,7 +166,7 @@ class GoBGPMRTTester(Tester, GoBGP, MRTTester):
             self.config_name = '{0}.conf'.format(self.name)
 
     def get_startup_cmd(self):
-        conf = self.conf.get('neighbors', {}).values()[0]
+        conf = list(self.conf.get('neighbors', {}).values())[0]
 
         mrtfile = self.get_mrt_file(conf, conf['router-id'])
         if not mrtfile:

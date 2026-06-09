@@ -15,7 +15,7 @@
 
 from gobgp import GoBGP
 import os
-from  settings import dckr
+from settings import podman_client
 import yaml
 import json
 from threading import Thread
@@ -25,8 +25,8 @@ class Monitor(GoBGP):
 
     CONTAINER_NAME = 'bgperf_monitor'
 
-    def run(self, conf, dckr_net_name=''):
-        ctn = super(GoBGP, self).run(dckr_net_name)
+    def run(self, conf, network_name=''):
+        ctn = super(GoBGP, self).run(network_name)
         config = {}
         config['global'] = {
             'config': {
@@ -48,9 +48,9 @@ gobgpd -t yaml -f {1}/{2} -l {3} > {1}/gobgpd.log 2>&1
         filename = '{0}/start.sh'.format(self.host_dir)
         with open(filename, 'w') as f:
             f.write(startup)
-        os.chmod(filename, 0777)
-        i = dckr.exec_create(container=self.name, cmd='{0}/start.sh'.format(self.guest_dir))
-        dckr.exec_start(i['Id'], detach=True, socket=True)
+        os.chmod(filename, 0o777)
+        i = podman_client.exec_create(container=self.name, cmd='{0}/start.sh'.format(self.guest_dir))
+        podman_client.exec_start(i['Id'], detach=True)
         self.config = conf
         return ctn
 

@@ -2,7 +2,7 @@
 
 ![architecture of bgperf](./bgperf.jpg)
 
-When `bench` command issued, `bgperf` boots three (or more) docker containers,
+When `bench` command issued, `bgperf` boots three (or more) Podman containers,
 `target`, `monitor` and one or more `tester` and connect them via a bridge (`bgperf-br` by default).
 
 By default, `bgperf` stores all configuration files and log files under `/tmp/bgperf`.

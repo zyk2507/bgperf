@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from settings import dckr
+from settings import podman_client
 import io
 import os
 import yaml
@@ -25,8 +25,8 @@ import sys
 flatten = lambda l: chain.from_iterable(l)
 
 def get_ctn_names():
-    names = list(flatten(n['Names'] for n in dckr.containers(all=True)))
-    return [n[1:] if n[0] == '/' else n for n in names]
+    names = list(flatten(n['Names'] for n in podman_client.containers(all=True)))
+    return [n[1:] if n and n[0] == '/' else n for n in names]
 
 
 def ctn_exists(name):
@@ -34,11 +34,18 @@ def ctn_exists(name):
 
 
 def img_exists(name):
-    return name in [ctn['RepoTags'][0].split(':')[0] for ctn in dckr.images() if ctn['RepoTags'] != None]
+    image_names = []
+    for image in podman_client.images():
+        for repo_tag in image.get('RepoTags') or []:
+            repo = repo_tag.rsplit(':', 1)[0]
+            if repo.startswith('localhost/'):
+                repo = repo[len('localhost/'):]
+            image_names.append(repo)
+    return name in image_names
 
 
 def rm_line():
-    print '\x1b[1A\x1b[2K\x1b[1D\x1b[1A'
+    print('\x1b[1A\x1b[2K\x1b[1D\x1b[1A')
 
 
 class Container(object):
@@ -51,12 +58,12 @@ class Container(object):
         self.config_name = None
         if not os.path.exists(host_dir):
             os.makedirs(host_dir)
-            os.chmod(host_dir, 0777)
+            os.chmod(host_dir, 0o777)
 
     @classmethod
     def build_image(cls, force, tag, nocache=False):
-        def insert_after_from(dockerfile, line):
-            lines = dockerfile.split('\n')
+        def insert_after_from(containerfile, line):
+            lines = containerfile.split('\n')
             i = -1
             for idx, l in enumerate(lines):
                 elems = [e.strip() for e in l.split()]
@@ -67,16 +74,17 @@ class Container(object):
             lines.insert(i+1, line)
             return '\n'.join(lines)
 
+        containerfile = cls.containerfile
         for env in ['http_proxy', 'https_proxy']:
             if env in os.environ:
-                cls.dockerfile = insert_after_from(cls.dockerfile, 'ENV {0} {1}'.format(env, os.environ[env]))
+                containerfile = insert_after_from(containerfile, 'ENV {0} {1}'.format(env, os.environ[env]))
 
-        f = io.BytesIO(cls.dockerfile.encode('utf-8'))
+        f = io.StringIO(containerfile)
         if force or not img_exists(tag):
-            print 'build {0}...'.format(tag)
-            for line in dckr.build(fileobj=f, rm=True, tag=tag, decode=True, nocache=nocache):
+            print('build {0}...'.format(tag))
+            for line in podman_client.build(fileobj=f, rm=True, tag=tag, decode=True, nocache=nocache):
                 if 'stream' in line:
-                    print line['stream'].strip()
+                    print(line['stream'].strip())
 
     def get_ipv4_addresses(self):
         if 'local-address' in self.conf:
@@ -84,40 +92,40 @@ class Container(object):
             return [local_addr]
         raise NotImplementedError()
 
-    def run(self, dckr_net_name='', rm=True):
+    def run(self, network_name='', rm=True):
 
         if rm and ctn_exists(self.name):
-            print 'remove container:', self.name
-            dckr.remove_container(self.name, force=True)
+            print('remove container:', self.name)
+            podman_client.remove_container(self.name, force=True)
 
-        host_config = dckr.create_host_config(
+        host_config = podman_client.create_host_config(
             binds=['{0}:{1}'.format(os.path.abspath(self.host_dir), self.guest_dir)],
             privileged=True,
             network_mode='bridge',
             cap_add=['NET_ADMIN']
         )
 
-        ctn = dckr.create_container(image=self.image, entrypoint='bash', detach=True, name=self.name,
+        ctn = podman_client.create_container(image=self.image, entrypoint='bash', detach=True, name=self.name,
                                     stdin_open=True, volumes=[self.guest_dir], host_config=host_config)
         self.ctn_id = ctn['Id']
 
         ipv4_addresses = self.get_ipv4_addresses()
 
         net_id = None
-        for network in dckr.networks(names=[dckr_net_name]):
-            if network['Name'] != dckr_net_name:
+        for network in podman_client.networks(names=[network_name]):
+            if network['Name'] != network_name:
                 continue
 
             net_id = network['Id']
             if not 'IPAM' in network:
                 print('can\'t verify if container\'s IP addresses '
-                      'are valid for Docker network {}: missing IPAM'.format(dckr_net_name))
+                      'are valid for Podman network {}: missing IPAM'.format(network_name))
                 break
             ipam = network['IPAM']
 
             if not 'Config' in ipam:
                 print('can\'t verify if container\'s IP addresses '
-                      'are valid for Docker network {}: missing IPAM.Config'.format(dckr_net_name))
+                      'are valid for Podman network {}: missing IPAM.Config'.format(network_name))
                 break
 
             ip_ok = False
@@ -127,26 +135,26 @@ class Container(object):
                     ip_ok = netaddr.IPAddress(ip) in netaddr.IPNetwork(subnet)
 
                 if not ip_ok:
-                    print('the container\'s IP address {} is not valid for Docker network {} '
+                    print('the container\'s IP address {} is not valid for Podman network {} '
                           'since it\'s not part of any of its subnets ({})'.format(
-                              ip, dckr_net_name, ', '.join(network_subnets)))
-                    print('Please consider removing the Docket network {net} '
+                              ip, network_name, ', '.join(network_subnets)))
+                    print('Please consider removing the Podman network {net} '
                           'to allow bgperf to create it again using the '
                           'expected subnet:\n'
-                          '  docker network rm {net}'.format(net=dckr_net_name))
+                          '  podman network rm {net}'.format(net=network_name))
                     sys.exit(1)
             break
 
         if net_id is None:
-            print 'Docker network "{}" not found!'.format(dckr_net_name)
+            print('Podman network "{}" not found!'.format(network_name))
             return
 
-        dckr.connect_container_to_network(self.ctn_id, net_id, ipv4_address=ipv4_addresses[0])
-        dckr.start(container=self.name)
+        podman_client.connect_container_to_network(self.ctn_id, net_id, ipv4_address=ipv4_addresses[0])
+        podman_client.start(container=self.name)
 
         if len(ipv4_addresses) > 1:
 
-            # get the interface used by the first IP address already added by Docker
+            # get the interface used by the first IP address already added by Podman
             dev = None
             res = self.local('ip addr')
             for line in res.split('\n'):
@@ -162,30 +170,79 @@ class Container(object):
 
     def stats(self, queue):
         def stats():
-            for stat in dckr.stats(self.ctn_id, decode=True):
-                cpu_percentage = 0.0
-                prev_cpu = stat['precpu_stats']['cpu_usage']['total_usage']
-                if 'system_cpu_usage' in stat['precpu_stats']:
-                    prev_system = stat['precpu_stats']['system_cpu_usage']
-                else:
-                    prev_system = 0
-                cpu = stat['cpu_stats']['cpu_usage']['total_usage']
-                system = stat['cpu_stats']['system_cpu_usage']
-                cpu_num = len(stat['cpu_stats']['cpu_usage']['percpu_usage'])
-                cpu_delta = float(cpu) - float(prev_cpu)
-                system_delta = float(system) - float(prev_system)
-                if system_delta > 0.0 and cpu_delta > 0.0:
-                    cpu_percentage = (cpu_delta / system_delta) * float(cpu_num) * 100.0
-                mem_usage = stat['memory_stats'].get('usage', 0)
+            for stat in podman_client.stats(self.ctn_id, decode=True):
+                cpu_percentage, mem_usage = self._parse_stats(stat)
                 queue.put({'who': self.name, 'cpu': cpu_percentage, 'mem': mem_usage})
 
         t = Thread(target=stats)
         t.daemon = True
         t.start()
 
+    def _parse_stats(self, stat):
+        if 'cpu_stats' in stat and 'precpu_stats' in stat:
+            cpu_percentage = 0.0
+            prev_cpu = stat['precpu_stats']['cpu_usage']['total_usage']
+            prev_system = stat['precpu_stats'].get('system_cpu_usage', 0)
+            cpu = stat['cpu_stats']['cpu_usage']['total_usage']
+            system = stat['cpu_stats'].get('system_cpu_usage', 0)
+            percpu = stat['cpu_stats']['cpu_usage'].get('percpu_usage') or []
+            cpu_num = len(percpu) or 1
+            cpu_delta = float(cpu) - float(prev_cpu)
+            system_delta = float(system) - float(prev_system)
+            if system_delta > 0.0 and cpu_delta > 0.0:
+                cpu_percentage = (cpu_delta / system_delta) * float(cpu_num) * 100.0
+            mem_usage = stat.get('memory_stats', {}).get('usage', 0)
+            return cpu_percentage, mem_usage
+
+        return self._parse_podman_stats(stat)
+
+    def _parse_podman_stats(self, stat):
+        cpu_percentage = self._parse_percentage(
+            stat.get('CPUPerc') or stat.get('CPU') or stat.get('cpu_percent') or 0
+        )
+        mem_usage = (
+            stat.get('MemUsageBytes') or
+            stat.get('MemUsage') or
+            stat.get('mem_usage') or
+            stat.get('memory') or
+            0
+        )
+        if isinstance(mem_usage, str):
+            mem_usage = mem_usage.split('/')[0].strip()
+            mem_usage = self._parse_size(mem_usage)
+        return cpu_percentage, mem_usage
+
+    def _parse_percentage(self, value):
+        if isinstance(value, str):
+            value = value.strip().rstrip('%')
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _parse_size(self, value):
+        if not isinstance(value, str):
+            return int(value)
+        factors = {
+            'b': 1,
+            'kb': 1000,
+            'kib': 1024,
+            'mb': 1000 ** 2,
+            'mib': 1024 ** 2,
+            'gb': 1000 ** 3,
+            'gib': 1024 ** 3,
+        }
+        value = value.strip()
+        number = ''.join(ch for ch in value if ch.isdigit() or ch == '.')
+        unit = ''.join(ch for ch in value if ch.isalpha()).lower() or 'b'
+        try:
+            return int(float(number) * factors.get(unit, 1))
+        except (TypeError, ValueError):
+            return 0
+
     def local(self, cmd, stream=False, detach=False):
-        i = dckr.exec_create(container=self.name, cmd=cmd)
-        return dckr.exec_start(i['Id'], stream=stream, detach=detach)
+        i = podman_client.exec_create(container=self.name, cmd=cmd)
+        return podman_client.exec_start(i['Id'], stream=stream, detach=detach)
 
     def get_startup_cmd(self):
         raise NotImplementedError()
@@ -199,7 +256,7 @@ class Container(object):
         filename = '{0}/start.sh'.format(self.host_dir)
         with open(filename, 'w') as f:
             f.write(startup_content)
-        os.chmod(filename, 0777)
+        os.chmod(filename, 0o777)
 
         return self.local('{0}/start.sh'.format(self.guest_dir),
                           detach=detach,
@@ -221,8 +278,8 @@ class Target(Container):
             return True
         return False
 
-    def run(self, scenario_global_conf, dckr_net_name=''):
-        ctn = super(Target, self).run(dckr_net_name)
+    def run(self, scenario_global_conf, network_name=''):
+        ctn = super(Target, self).run(network_name)
 
         if not self.use_existing_config():
             self.write_config(scenario_global_conf)
@@ -249,8 +306,8 @@ class Tester(Container):
     def configure_neighbors(self, target_conf):
         raise NotImplementedError()
 
-    def run(self, target_conf, dckr_net_name):
-        ctn = super(Tester, self).run(dckr_net_name)
+    def run(self, target_conf, network_name):
+        ctn = super(Tester, self).run(network_name)
 
         self.configure_neighbors(target_conf)
 
@@ -275,6 +332,6 @@ class Tester(Container):
                     cnt += 1
                     if cnt > 1:
                         rm_line()
-                    print 'tester booting.. ({0}/{1})'.format(cnt, len(self.conf.get('neighbors', {}).values()))
+                    print('tester booting.. ({0}/{1})'.format(cnt, len(self.conf.get('neighbors', {}).values())))
 
         return ctn

@@ -24,8 +24,8 @@ class FRRouting(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/frr', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
-FROM ubuntu:16.04
+        cls.containerfile = '''
+FROM ubuntu:latest
 WORKDIR /root
 # create users and groups for least-privilege support
 RUN groupadd -g 92 frr
@@ -37,7 +37,7 @@ RUN usermod -a -G frrvty frr
 RUN apt-get update && apt-get install -y \
     git autoconf automake libtool make gawk libreadline-dev \
     texinfo dejagnu pkg-config libpam0g-dev libjson-c-dev bison flex \
-    python-pytest libc-ares-dev python3-dev libsystemd-dev
+    python3-pytest libc-ares-dev python3-dev libsystemd-dev
 
 RUN git clone https://github.com/FRRouting/frr.git frr
 # build, including examples and documentation to disable '--disable-doc'
@@ -95,7 +95,7 @@ neighbor {0} timers 30 90
 
             if 'policy' in scenario_global_conf:
                 seq = 10
-                for k, v in scenario_global_conf['policy'].iteritems():
+                for k, v in scenario_global_conf['policy'].items():
                     match_info = []
                     for i, match in enumerate(v['match']):
                         n = '{0}_match_{1}'.format(k, i)

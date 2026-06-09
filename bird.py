@@ -25,11 +25,11 @@ class BIRD(Container):
 
     @classmethod
     def build_image(cls, force=False, tag='bgperf/bird', checkout='HEAD', nocache=False):
-        cls.dockerfile = '''
+        cls.containerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
 RUN apt-get update && apt-get install -qy git autoconf libtool gawk make \
-flex bison libncurses-dev libreadline6-dev
+flex bison libncurses-dev libreadline-dev
 RUN apt-get install -qy flex
 RUN git clone https://gitlab.labs.nic.cz/labs/bird.git bird
 RUN cd bird && git checkout {0} && autoreconf -i && ./configure && make && make install
@@ -146,7 +146,7 @@ return true;
             f.write(config)
 
             if 'policy' in scenario_global_conf:
-                for k, v in scenario_global_conf['policy'].iteritems():
+                for k, v in scenario_global_conf['policy'].items():
                     match_info = []
                     for i, match in enumerate(v['match']):
                         n = '{0}_match_{1}'.format(k, i)
